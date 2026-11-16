@@ -1,0 +1,22 @@
+# clip-watcher configuration
+channel: "shanks_ttv"
+
+recordings_dir: "./recordings"
+clips_dir: "./clips"
+logs_dir: "./logs"
+
+# Spike detection: a 10s bucket is a spike when its message count is more than
+# 3x the average of the preceding 300s (30 buckets).
+spike_window_sec: 10
+spike_multiplier: 3.0
+spike_baseline_sec: 300
+
+# Ignore tiny buckets so a single message in a quiet chat is not a spike.
+spike_min_messages: 3
+
+# Do not cut another clip for this many seconds after handling a spike.
+spike_cooldown_sec: 60
+
+# Clip window around the detected spike bucket.
+pre_sec: 30
+post_sec: 15

@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.py[cod]
+.ruff_cache/
+.pytest_cache/
+
+recordings/
+clips/
+logs/
+
+# OS/edit noise
+.DS_Store
