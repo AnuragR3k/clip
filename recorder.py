@@ -31,6 +31,10 @@ def resolve_streamlink() -> str:
     """Return the Streamlink executable, or raise a useful error."""
     binary = os.environ.get("STREAMLINK_BIN") or shutil.which("streamlink")
     if not binary:
+        local_binary = Path(__file__).with_name(".venv") / "bin" / "streamlink"
+        if local_binary.is_file():
+            binary = str(local_binary)
+    if not binary:
         raise RecorderError(
             "streamlink executable not found. Install it with "
             "`pip install streamlink` and make sure it is on PATH."

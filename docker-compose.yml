@@ -1,0 +1,19 @@
+services:
+  clipper:
+    build: .
+    image: spike-clipper:local
+    container_name: spike-clipper
+    restart: unless-stopped
+    environment:
+      EXTRA_ARGS: ${EXTRA_ARGS:---no-publish}
+      SUPOCLIP_API_KEY: ${SUPOCLIP_API_KEY:-}
+      SUPOCLIP_USER_ID: ${SUPOCLIP_USER_ID:-}
+      SUPOCLIP_AUTH_SECRET: ${SUPOCLIP_AUTH_SECRET:-}
+    ports:
+      - "${REVIEW_PORT:-8765}:8765"
+    volumes:
+      - ./data/recordings:/app/recordings
+      - ./data/clips:/app/clips
+      - ./data/logs:/app/logs
+      - ./data/review:/app/review
+      - ./config.yaml:/app/config.yaml:ro

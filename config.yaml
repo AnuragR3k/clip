@@ -1,22 +1,89 @@
-# clip-watcher configuration
-channel: "shanks_ttv"
+# spike-watcher v2 config (multi-channel, approve-first)
+#
+# IMPORTANT: replace the placeholder channel with the 4-5 Twitch login handles
+# you want to monitor before running `python supervisor.py`.
+
+# Legacy single-channel setting (used by `python main.py`).
+channel: "jasontheween"
+
+# Channels watched by `python supervisor.py` (one row each, lower-case login).
+channels:
+  - "jasontheween"
+  - "xqc"
+  - "lacy"
+  - "theburntpeanut"
+  # Kick has no chat-spike feed here, so these use timed clips instead.
+  - platform: "kick"
+    name: "n3on"
+  - platform: "kick"
+    name: "adinross"
+
+# How often to cut a 45s clip for Kick channels (seconds).
+kick_interval_sec: 600
 
 recordings_dir: "./recordings"
 clips_dir: "./clips"
 logs_dir: "./logs"
+review_dir: "./review"
+
+# Rolling live buffer: ~10s segments, keep the last 5 minutes only.
+segment_sec: 10
+keep_sec: 300
+encode_workers: 2
 
 # Spike detection: a 10s bucket is a spike when its message count is more than
 # 3x the average of the preceding 300s (30 buckets).
 spike_window_sec: 10
-spike_multiplier: 3.0
+spike_multiplier: 2.0
 spike_baseline_sec: 300
-
-# Ignore tiny buckets so a single message in a quiet chat is not a spike.
 spike_min_messages: 3
-
-# Do not cut another clip for this many seconds after handling a spike.
 spike_cooldown_sec: 60
 
-# Clip window around the detected spike bucket.
+# Clip window around the detected spike bucket (last 30s + 15s after).
 pre_sec: 30
 post_sec: 15
+
+# Publishing (approve-first). Nothing posts until you approve in the review UI.
+publish:
+  enabled: true
+  api_url: "http://localhost:8000"
+  api_key_env: "SUPOCLIP_API_KEY"
+  platforms:
+    - youtube
+    - instagram
+  # Leave blank to auto-pick the first active account per provider from
+  # GET /social/connections. Set ids explicitly to target a specific account.
+  social_account_ids:
+    youtube: ""
+    instagram: ""
+  hashtags:
+    - shorts
+    - gta6
+  caption_template: "{title} #shorts"
+  privacy_level: "public"
+  review_port: 8765
+
+# Post-approval re-render: hard split (facecam top, gameplay bottom).
+# Values are FRACTIONS of the source frame when written as floats 0..1;
+# absolute pixel values can be used instead (integers, or floats > 1).
+# These starting boxes were picked from real 1920x1080 frames on 2026-11-18.
+# Tune with: python layout.py preview <clip.mp4> --out preview.jpg
+facecam:
+  default: {x: 0.78, y: 0.0, w: 0.22, h: 0.27}   # top-right webcam
+  channels:
+    jasontheween: {x: 0.785, y: 0.0, w: 0.215, h: 0.264}  # top-right
+    xqc:          {x: 0.0, y: 0.042, w: 0.193, h: 0.222}  # top-left
+    lacy:         {x: 0.0, y: 0.0, w: 0.276, h: 0.278}    # top-left
+    n3on:         {x: 0.0, y: 0.042, w: 0.24, h: 0.247}   # kick, top-left
+    adinross:     {x: 0.0, y: 0.0, w: 0.22, h: 0.222}     # kick, top-left
+
+layout:
+  top_px: 672                 # facecam band height
+  bottom_px: 1248             # gameplay band height (sum must be 1920)
+  # Optional: crop the gameplay source before scaling. Omit to use the FULL
+  # frame; the center crop after "cover" scaling already removes corner
+  # webcams from the gameplay panel. Set this only if the action is off-center.
+  # gameplay_box: {x: 0.0, y: 0.0, w: 1.0, h: 1.0}
+  # Stretch goal: burn in the review-record title over the gameplay area.
+  hook_enabled: false
+  hook_template: "{title}"
