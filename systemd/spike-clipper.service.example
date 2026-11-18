@@ -1,0 +1,17 @@
+[Unit]
+Description=Spike clipper supervisor (multi-channel, approve-first)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ry3k/REPLACE_WITH_PATH/clip
+ExecStart=/home/ry3k/REPLACE_WITH_PATH/clip/.venv/bin/python -u supervisor.py --no-publish --verbose
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target

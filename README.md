@@ -225,3 +225,27 @@ The container must be able to reach the SupoClip backend, not just the frontend.
 `.github/workflows/deploy.yml` deploys on every push to `main` over SSH. Set the
 repo secrets `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, and `VPS_APP_DIR`; on the VPS,
 clone the repo once into that directory and make sure `deploy.sh` is executable.
+
+## Free local option: systemd user service
+
+No VPS needed. A `systemd --user` unit keeps the clipper running, restarts it
+automatically on crash, and sends logs to `journalctl`. A template is in
+`systemd/spike-clipper.service.example`.
+
+```bash
+# install (adjust paths in the template first)
+mkdir -p ~/.config/systemd/user
+cp systemd/spike-clipper.service.example ~/.config/systemd/user/spike-clipper.service
+systemctl --user daemon-reload
+systemctl --user enable --now spike-clipper
+
+systemctl --user status spike-clipper
+journalctl --user -u spike-clipper -f
+systemctl --user restart spike-clipper
+```
+
+The unit starts at login. To survive logout/reboot without logging in, enable
+lingering once: `sudo loginctl enable-linger $USER`.
+
+Editing code does not restart the service — only `systemctl --user restart`
+does. Saved clips and the review queue are never touched by a restart.
