@@ -276,3 +276,25 @@ before testing a real (non-posting) ingest and enabling publish.
   `load_config` shows 4 twitch + 2 kick channels, streamlink resolved both Kick
   live URLs, both Kick recorders produced segments, all six channels started,
   no errors in supervisor log.
+
+## 2026-11-18 — Branding + burned-in speech captions (branch agent/brand-captions)
+- User asked: after approval, show whose clip it is (Twitch/Kick logo +
+  `twitch.tv/<channel>` / `kick.com/<channel>` at top) and add captions.
+  They chose real speech subtitles over hook-only text.
+- Files: new `captions.py`, `assets/twitch.svg`, `assets/kick.svg`,
+  `test_captions.py`; edited `layout.py`, `supervisor.py`, `review.py`,
+  `config.yaml`, `requirements.txt`, `README.md`.
+- `ReviewStore` records now carry `platform`; `ChannelRunner` passes it into
+  encode jobs. `RenderWorker` transcribes the raw clip with faster-whisper
+  `tiny`, writes an ASS file, and renders via `to_split_vertical` with logo
+  overlay + drawtext handle + timed subtitles.
+- Audio decode uses ffmpeg → numpy float array, because faster-whisper 1.2.1
+  is incompatible with installed PyAV 19 (`metadata_errors` kwarg).
+- ASS timestamps must be centiseconds (`0:00:00.50`), not milliseconds;
+  `Dialogue` MarginV must carry the style margin or subtitles land at the very
+  bottom.
+- Verification: ruff/compileall PASS; `test_captions.py`, `test_publisher.py`,
+  `test_pipeline.py` PASS; real transcription on a 3.7s clip gave 2 cues;
+  rendered frame visually checked (logo + handle side by side, subtitles in
+  gameplay panel). Service NOT restarted — changes live only after merge +
+  explicit restart.

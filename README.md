@@ -75,6 +75,29 @@ Approval triggers a dedicated render worker. It re-encodes the still-present
   width directly below the facecam.
 
 The output is always 1080x1920 H.264 yuv420p + AAC (copied), `+faststart`.
+
+### Branding and burned-in captions
+
+On approval the renderer also adds, when enabled in `config.yaml`:
+- a platform logo (`assets/twitch.svg` or `assets/kick.svg`) plus
+  `twitch.tv/<channel>` / `kick.com/<channel>` at the top right, chosen from
+  the clip's recorded `platform` field;
+- timed speech subtitles burned into the lower part of the gameplay panel.
+  They come from a local `faster-whisper` `tiny` model (no API key); the model
+  downloads once, then each 45s clip adds roughly 20-60s of render time.
+  Audio is decoded with ffmpeg into a numpy array, so PyAV is not used.
+
+```yaml
+captions:
+  enabled: true
+  model: "tiny"
+  # language: "en"
+branding:
+  enabled: true
+```
+Set either `enabled: false` to skip that overlay. If transcription fails, the
+render fails and the review record is marked with `edit_status: fallback`;
+the original vertical clip is still published.
 `top_px + bottom_px` must equal 1920. Gameplay uses the **full source frame**
 by default: after "cover" scaling the center crop naturally excludes corner
 webcams. Set `layout.gameplay_box` only if the action is off-center.

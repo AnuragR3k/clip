@@ -87,3 +87,13 @@ layout:
   # Stretch goal: burn in the review-record title over the gameplay area.
   hook_enabled: false
   hook_template: "{title}"
+
+# Burned-in speech subtitles (local Whisper; tiny model downloads once).
+captions:
+  enabled: true
+  model: "tiny"
+  # language: "en"    # omit to auto-detect
+
+# Platform mark + twitch.tv/<channel> or kick.com/<channel> at the top right.
+branding:
+  enabled: true

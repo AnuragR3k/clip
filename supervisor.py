@@ -14,6 +14,7 @@ import logging
 import math
 import queue
 import re
+import tempfile
 import threading
 import time
 from datetime import datetime
@@ -21,9 +22,10 @@ from pathlib import Path
 
 import yaml
 
+from captions import transcribe, write_ass
 from chat_monitor import ChatMonitor
 from clipper import ClipperError, cut_clip, to_vertical
-from layout import facecam_box_for, to_split_vertical, validate_layout_config
+from layout import brand_for, facecam_box_for, to_split_vertical, validate_layout_config
 from publisher import Publisher, PublisherError
 from review import ReviewStore, serve
 from rolling import RollingRecorder, SegmentIndex, concat_segments
@@ -86,6 +88,8 @@ def load_config(path: str | Path) -> dict:
         "publish": raw.get("publish") if isinstance(raw.get("publish"), dict) else {},
         "facecam": raw.get("facecam") if isinstance(raw.get("facecam"), dict) else {},
         "layout": raw.get("layout") if isinstance(raw.get("layout"), dict) else {},
+        "captions": raw.get("captions") if isinstance(raw.get("captions"), dict) else {},
+        "branding": raw.get("branding") if isinstance(raw.get("branding"), dict) else {},
     }
     if config["segment_sec"] < 2 or config["keep_sec"] < config["segment_sec"] * 3:
         raise ValueError("keep_sec must be at least 3x segment_sec.")
@@ -245,6 +249,7 @@ class ChannelRunner:
         self.encode_queue.put(
             {
                 "channel": self.channel,
+                "platform": self.platform,
                 "spike_time": spike.start_time,
                 "raw_path": str(raw_path),
                 "message_count": spike.message_count,
@@ -304,6 +309,7 @@ class EncodeWorker:
                     raw,
                     vertical,
                     chat_excerpt=job.get("chat_excerpt", ""),
+                    platform=job.get("platform", "twitch"),
                     title=f"{job['channel']} - {datetime.fromtimestamp(job['spike_time']):%H:%M:%S}",
                     platforms=list(platforms) if isinstance(platforms, list) else [],
                 )
@@ -393,15 +399,41 @@ class RenderWorker:
             except (KeyError, ValueError):
                 hook_text = str(record.get("title") or "")
 
-        to_split_vertical(
-            raw,
-            edited,
-            facecam_box_for(self.config["facecam"], record.get("channel", "")),
-            top_px=int(layout_cfg.get("top_px", 672)),
-            bottom_px=int(layout_cfg.get("bottom_px", 1248)),
-            gameplay_box=layout_cfg.get("gameplay_box"),
-            hook_text=hook_text,
-        )
+        captions_cfg = self.config["captions"]
+        branding_cfg = self.config["branding"]
+        with tempfile.TemporaryDirectory(prefix="spike_edit_") as tmp:
+            caption_ass = None
+            if captions_cfg.get("enabled"):
+                cues = transcribe(
+                    raw,
+                    model_size=str(captions_cfg.get("model") or "tiny"),
+                    language=captions_cfg.get("language"),
+                )
+                caption_ass = write_ass(
+                    cues,
+                    Path(tmp) / "captions.ass",
+                    bottom_px=int(layout_cfg.get("bottom_px", 1248)),
+                )
+
+            brand = None
+            if branding_cfg.get("enabled"):
+                brand = brand_for(
+                    str(record.get("platform") or "twitch"),
+                    str(record.get("channel") or ""),
+                )
+
+            to_split_vertical(
+                raw,
+                edited,
+                facecam_box_for(self.config["facecam"], record.get("channel", "")),
+                top_px=int(layout_cfg.get("top_px", 672)),
+                bottom_px=int(layout_cfg.get("bottom_px", 1248)),
+                gameplay_box=layout_cfg.get("gameplay_box"),
+                hook_text=hook_text,
+                caption_ass=caption_ass,
+                brand_logo=brand["logo"] if brand else None,
+                brand_handle=brand["handle"] if brand else None,
+            )
         self.store.update(
             clip_id,
             edited_path=str(edited.resolve()),

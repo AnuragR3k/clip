@@ -47,6 +47,24 @@ DEFAULT_FACECAM_CHANNELS: dict[str, dict[str, float]] = {
 BOX_KEYS = ("x", "y", "w", "h")
 Rect = tuple[int, int, int, int]  # x, y, w, h in source pixels
 
+ASSETS_DIR = Path(__file__).with_name("assets")
+PLATFORM_BRAND = {
+    "twitch": {"logo": "twitch.svg", "url": "twitch.tv"},
+    "kick": {"logo": "kick.svg", "url": "kick.com"},
+}
+
+
+def brand_for(platform: str, channel: str) -> dict[str, str] | None:
+    """Return logo path and channel handle for a platform, if known."""
+    entry = PLATFORM_BRAND.get(str(platform).strip().lower())
+    if entry is None:
+        return None
+    logo = ASSETS_DIR / entry["logo"]
+    if not logo.is_file():
+        LOGGER.warning("Brand logo missing: %s", logo)
+        return None
+    return {"logo": str(logo), "handle": f"{entry['url']}/{channel}"}
+
 
 def get_dimensions(path: str | Path) -> tuple[int, int]:
     """Return (width, height) of the first video stream via ffprobe."""
@@ -207,10 +225,10 @@ def facecam_box_for(facecam: Mapping[str, Any] | None, channel: str) -> dict[str
     return dict(facecam.get("default") or DEFAULT_FACECAM_BOX)
 
 
-def _scale_branch(box: Mapping[str, Any] | Sequence[Any], size: int, label: str, source_size: tuple[int, int]) -> str:
+def _scale_branch(box: Mapping[str, Any] | Sequence[Any], size: int, label: str, source_size: tuple[int, int], input_label: str = "0:v") -> str:
     x, y, w, h = normalize_box(box, *source_size)
     return (
-        f"[0:v]crop={w}:{h}:{x}:{y},"
+        f"[{input_label}]crop={w}:{h}:{x}:{y},"
         f"scale={OUTPUT_WIDTH}:{size}:force_original_aspect_ratio=increase,"
         f"crop={OUTPUT_WIDTH}:{size},setsar=1[{label}]"
     )
@@ -249,6 +267,37 @@ def _ass_style(text: str, top_px: int) -> str:
     )
 
 
+def _font_path() -> str:
+    """Find a bold font for the platform handle."""
+    configured = os.environ.get("DRAWTEXT_FONT")
+    candidates = [
+        configured,
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
+    ]
+    for candidate in candidates:
+        if candidate and Path(candidate).is_file():
+            return candidate
+    raise ClipperError(
+        "No bold font found for the brand overlay; set DRAWTEXT_FONT to a .ttf file."
+    )
+
+
+def _drawtext_handle(handle: str) -> str:
+    """Escape a handle for ffmpeg's drawtext filter."""
+    escaped = (
+        handle.replace("\\", r"\\")
+        .replace(":", r"\:")
+        .replace("'", r"\'")
+        .replace("%", r"\%")
+    )
+    return (
+        f"drawtext=fontfile='{_escape_filter_path(Path(_font_path()))}':"
+        f"text='{escaped}':fontsize=30:fontcolor=0xF2F5F1:"
+        "x=1080-tw-112:y=30:box=1:boxcolor=0x99000000:boxborderw=10"
+    )
+
+
 def build_filter(
     source_size: tuple[int, int],
     facecam_box: Mapping[str, Any] | Sequence[Any],
@@ -258,20 +307,49 @@ def build_filter(
     *,
     hook_text: str | None = None,
     ass_path: Path | None = None,
+    caption_ass: Path | None = None,
+    brand_logo: Path | None = None,
+    brand_handle: str | None = None,
+    logo_size: int = 64,
 ) -> str:
-    """Build the ffmpeg filter_complex for the hard split layout."""
+    """Build the ffmpeg filter_complex for the hard split layout.
+
+    Optional overlays, applied in order: platform logo + handle at the top
+    right, timed speech captions at the bottom, and a static hook title.
+    """
     width, height = source_size
     game = gameplay_box if gameplay_box is not None else {"x": 0, "y": 0, "w": width, "h": height}
-    stack = "[cam][game]vstack=inputs=2,format=yuv420p"
+    source_input = "1:v" if brand_logo is not None else "0:v"
+    parts = [
+        _scale_branch(facecam_box, top_px, "cam", source_size, source_input),
+        _scale_branch(game, bottom_px, "game", source_size, source_input),
+        "[cam][game]vstack=inputs=2,format=yuv420p[v]",
+    ]
+    current = "[v]"
+
+    if brand_logo is not None:
+        parts.append(
+            f"[0:v]scale={logo_size}:{logo_size}:flags=lanczos[logo]"
+        )
+        parts.append(
+            f"{current}[logo]overlay=x={OUTPUT_WIDTH - logo_size - 32}:y=28:"
+            "format=auto[brand]"
+        )
+        current = "[brand]"
+    if brand_handle:
+        parts.append(f"{current}{_drawtext_handle(brand_handle)}[txt]")
+        current = "[txt]"
+    if caption_ass is not None:
+        parts.append(
+            f"{current}ass=filename={_escape_filter_path(caption_ass)}[cap]"
+        )
+        current = "[cap]"
     if hook_text:
         if ass_path is None:
             raise ValueError("ass_path is required when hook_text is set.")
-        stack += f",ass=filename={_escape_filter_path(ass_path)}"
-    parts = [
-        _scale_branch(facecam_box, top_px, "cam", source_size),
-        _scale_branch(game, bottom_px, "game", source_size),
-        f"{stack}[v]",
-    ]
+        parts.append(f"{current}ass=filename={_escape_filter_path(ass_path)}[out]")
+        current = "[out]"
+    parts.append(f"{current}null[vout]")
     return ";".join(parts)
 
 
@@ -284,6 +362,10 @@ def to_split_vertical(
     bottom_px: int = DEFAULT_BOTTOM_PX,
     gameplay_box: Mapping[str, Any] | Sequence[Any] | None = None,
     hook_text: str | None = None,
+    caption_ass: str | Path | None = None,
+    brand_logo: str | Path | None = None,
+    brand_handle: str | None = None,
+    logo_size: int = 64,
 ) -> Path:
     """Render a 1080x1920 hard-split clip: facecam on top, gameplay below.
 
@@ -292,6 +374,10 @@ def to_split_vertical(
     scaling to 1080x1248 the center crop naturally excludes corner webcams, so
     the gameplay area stays clean without a second manual crop. Set
     ``gameplay_box`` explicitly if the action is off-center.
+
+    ``caption_ass`` burns timed subtitles, and ``brand_logo``/``brand_handle``
+    add the platform mark and ``twitch.tv/<channel>`` (or Kick equivalent) at
+    the top right.
     """
     source = Path(raw_path)
     if not source.is_file() or source.stat().st_size == 0:
@@ -309,6 +395,7 @@ def to_split_vertical(
         validate_box(gameplay_box)
 
     ass_file: Path | None = None
+    caption_file: Path | None = None
     try:
         if hook_text:
             with tempfile.NamedTemporaryFile(
@@ -321,6 +408,14 @@ def to_split_vertical(
             ) as handle:
                 ass_file = Path(handle.name)
                 handle.write(_ass_style(hook_text, top_px))
+        if caption_ass is not None:
+            caption_file = Path(caption_ass)
+            if not caption_file.is_file():
+                raise ClipperError(f"Caption file is missing: {caption_file}")
+
+        logo = Path(brand_logo) if brand_logo is not None else None
+        if logo is not None and not logo.is_file():
+            raise ClipperError(f"Brand logo is missing: {logo}")
 
         filter_complex = build_filter(
             size,
@@ -330,21 +425,23 @@ def to_split_vertical(
             bottom_px,
             hook_text=hook_text,
             ass_path=ass_file,
+            caption_ass=caption_file,
+            brand_logo=logo,
+            brand_handle=brand_handle,
+            logo_size=logo_size,
         )
-        command = [
-            get_ffmpeg(),
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-y",
+        command = [get_ffmpeg(), "-hide_banner", "-loglevel", "error", "-y"]
+        if logo is not None:
+            command += ["-i", str(logo)]
+        command += [
             "-i",
             str(source),
             "-filter_complex",
             filter_complex,
             "-map",
-            "[v]",
+            "[vout]",
             "-map",
-            "0:a?",
+            f"{1 if logo is not None else 0}:a?",
             "-c:v",
             "libx264",
             "-preset",

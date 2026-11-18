@@ -121,3 +121,16 @@
   streamlink Kick URLs resolved; both Kick recorders produced segments; all six
   channels started with no errors.
 - Result: running with 6 channels in --no-publish mode. No commits.
+
+## 2026-11-18 — Platform branding + speech captions
+- Agent: OpenCode (Hy4 flash Free). Worktree: `agent/brand-captions`.
+- Task: after approval, overlay Twitch/Kick logo + channel URL and burn real
+  speech subtitles into the 1080x1920 split edit.
+- Files changed: new `captions.py`, `assets/{twitch,kick}.svg`,
+  `test_captions.py`; edited `layout.py`, `supervisor.py`, `review.py`,
+  `config.yaml`, `requirements.txt`, `README.md`, memory.
+- Verification: ruff/compileall PASS; three tests PASS; real Whisper tiny
+  transcription produced 2 timed cues; visual frame check passed after fixing
+  ASS centisecond timestamps, caption MarginV and logo/handle overlap.
+- Result: committed on branch `agent/brand-captions` (not main). Local systemd
+  service deliberately untouched; merge + explicit restart required.

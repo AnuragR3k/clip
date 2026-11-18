@@ -48,6 +48,7 @@ class ReviewStore:
         *,
         chat_excerpt: str = "",
         title: str = "",
+        platform: str = "twitch",
         platforms: list[str] | None = None,
     ) -> str:
         stamp = datetime.fromtimestamp(spike_time).strftime("%Y%m%d_%H%M%S")
@@ -56,6 +57,7 @@ class ReviewStore:
         record = {
             "id": clip_id,
             "channel": channel,
+            "platform": str(platform).strip().lower(),
             "spike_time": spike_time,
             "created": time.time(),
             "status": "pending",
